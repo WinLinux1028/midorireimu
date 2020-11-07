@@ -107,6 +107,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		giverole(s, m, command)
 	case "ピン":
 		pin(s, m, command)
+	case "時間確認":
+		timecheck(s, m)
 	}
 }
 
@@ -166,6 +168,13 @@ func strfukugen(command []string, b int) (c string) {
 
 func username(user *discordgo.User) (a string) {
 	a = "<@" + user.ID + ">(" + user.Username + "#" + user.Discriminator + ")"
+	return
+}
+
+func formattime(time time.Time) (s string) {
+	s = time.Format("2006年1月2日 15時4分5秒.999999999")
+	i := strings.Index(s, "秒")
+	s = s[0:i] + "秒" + s[i+len("秒")+1:]
 	return
 }
 
@@ -385,5 +394,18 @@ func pin(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 			s.ChannelMessageUnpin(m.ChannelID, command[1])
 			s.ChannelMessageSend(m.ChannelID, "ピンを外しました。："+username(m.Author))
 		}
+	} else {
+		s.ChannelMessageSend(m.ChannelID, "メッセージ管理権限がありません")
 	}
+}
+
+func timecheck(s *discordgo.Session, m *discordgo.MessageCreate) {
+	defer cmderror(s, m)
+	mrand.Seed(time.Now().UnixNano())
+	embed := discordgo.MessageEmbed{
+		Title:       "時間です。よく見ておいてくださいね。",
+		Color:       mrand.Intn(0xffffff),
+		Description: formattime(time.Now()),
+	}
+	s.ChannelMessageSendEmbed(m.ChannelID, &embed)
 }
