@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	srand "crypto/rand"
 	"fmt"
 	"math/big"
 	mrand "math/rand"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -22,10 +24,21 @@ var (
 )
 
 func main() {
-	var Token string = "NzYxMjQyMTkxNjEwOTA0NTk2.X3XwCQ.l1vigLbUGqGwCHlbhUDi5VXyHhw"
-
-	var dg, err = discordgo.New("Bot " + Token)
+	token, _ := os.Executable()
+	f, err := os.Open(filepath.Dir(token) + "/../discordtoken.txt")
 	if err != nil {
+		fmt.Println("Input your bot token to (executable file directory)/../discordtoken.txt")
+		return
+	}
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		token = scanner.Text()
+		break
+	}
+	f.Close()
+
+	var dg, err2 = discordgo.New("Bot " + token)
+	if err2 != nil {
 		fmt.Println("error creating Discord session,", err)
 		return
 	}
@@ -337,6 +350,7 @@ func dice(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 }
 
 func giverole(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
+	defer cmderror(s, m)
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
 	if a&discordgo.PermissionManageRoles == discordgo.PermissionManageRoles {
 		s.GuildMemberRoleAdd(m.GuildID, command[1], command[2])
