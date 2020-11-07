@@ -22,7 +22,7 @@ var (
 )
 
 func main() {
-	var Token string = "YOUR TOKEN"
+	var Token string = "NzYxMjQyMTkxNjEwOTA0NTk2.X3XwCQ.l1vigLbUGqGwCHlbhUDi5VXyHhw"
 
 	var dg, err = discordgo.New("Bot " + Token)
 	if err != nil {
@@ -67,11 +67,11 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var command []string = readcmd(m)
 	switch command[0] {
 	case "ping":
-		ping(s, m, command)
+		ping(s, m)
 	case "ping2":
-		ping2(s, m, command)
+		ping2(s, m)
 	case "野生":
-		yasei(s, m, command)
+		yasei(s, m)
 	case "DM":
 		anonmsg(s, m, command)
 	case "チャンネルトピック":
@@ -154,12 +154,12 @@ func username(user *discordgo.User) (a string) {
 	return
 }
 
-func ping(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
+func ping(s *discordgo.Session, m *discordgo.MessageCreate) {
 	defer cmderror(s, m)
 	s.ChannelMessageSend(m.ChannelID, "pong!")
 }
 
-func ping2(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
+func ping2(s *discordgo.Session, m *discordgo.MessageCreate) {
 	defer cmderror(s, m)
 	var b *discordgo.Message
 	var a = time.Now()
@@ -168,7 +168,7 @@ func ping2(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	s.ChannelMessageEdit(m.ChannelID, b.ID, "pong！\n結果:**"+typeconv.Stringc(float64(c)/1000000000)+"**秒ですฅ✧！")
 }
 
-func yasei(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
+func yasei(s *discordgo.Session, m *discordgo.MessageCreate) {
 	defer cmderror(s, m)
 	mrand.Seed(time.Now().UnixNano())
 	var embed = discordgo.MessageEmbed{
@@ -340,7 +340,9 @@ func giverole(s *discordgo.Session, m *discordgo.MessageCreate, command []string
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
 	if a&discordgo.PermissionManageRoles == discordgo.PermissionManageRoles {
 		s.GuildMemberRoleAdd(m.GuildID, command[1], command[2])
-		s.ChannelMessageSend(m.ChannelID, "TEST")
+		user, _ := s.User(command[1])
+		role, _ := s.State.Role(m.GuildID, command[2])
+		s.ChannelMessageSend(m.ChannelID, username(user)+"さんに"+"<@&"+role.ID+">("+role.Name+")を付与しました")
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "ロール管理権限がありません")
 	}
