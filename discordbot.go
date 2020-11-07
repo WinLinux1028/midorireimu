@@ -105,6 +105,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		dice(s, m, command)
 	case "役職付与":
 		giverole(s, m, command)
+	case "ピン":
+		pin(s, m, command)
 	}
 }
 
@@ -225,7 +227,8 @@ func chtopic(s *discordgo.Session, m *discordgo.MessageCreate, command []string)
 func chsend(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	defer cmderror(s, m)
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, command[1])
-	if a&discordgo.PermissionSendMessages == discordgo.PermissionSendMessages {
+	check, _ := s.Channel(m.ChannelID)
+	if a&discordgo.PermissionSendMessages == discordgo.PermissionSendMessages || check.Type == discordgo.ChannelTypeDM {
 		s.ChannelMessageSend(command[1], strfukugen(command, 2))
 		s.ChannelMessageDelete(m.ChannelID, m.ID)
 	} else {
@@ -359,5 +362,28 @@ func giverole(s *discordgo.Session, m *discordgo.MessageCreate, command []string
 		s.ChannelMessageSend(m.ChannelID, username(user)+"さんに"+"<@&"+role.ID+">("+role.Name+")を付与しました")
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "ロール管理権限がありません")
+	}
+}
+
+func pin(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
+	defer cmderror(s, m)
+	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
+	check, _ := s.Channel(m.ChannelID)
+	if a&discordgo.PermissionManageChannels == discordgo.PermissionManageChannels || check.Type == discordgo.ChannelTypeDM {
+		msgs, _ := s.ChannelMessagesPinned(m.ChannelID)
+		var mode int
+		for _, msg := range msgs {
+			if msg.ID == command[1] {
+				mode = 1
+				break
+			}
+		}
+		if mode == 0 {
+			s.ChannelMessagePin(m.ChannelID, command[1])
+			s.ChannelMessageSend(m.ChannelID, "ピンをしました。："+username(m.Author))
+		} else {
+			s.ChannelMessageUnpin(m.ChannelID, command[1])
+			s.ChannelMessageSend(m.ChannelID, "ピンを外しました。："+username(m.Author))
+		}
 	}
 }
