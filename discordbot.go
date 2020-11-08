@@ -109,6 +109,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		pin(s, m, command)
 	case "時間確認":
 		timecheck(s, m)
+	case "脱出":
+		bye(s, m)
 	}
 }
 
@@ -178,6 +180,7 @@ func formattime(time time.Time) (s string) {
 	return
 }
 
+//ここからコマンド
 func ping(s *discordgo.Session, m *discordgo.MessageCreate) {
 	defer cmderror(s, m)
 	s.ChannelMessageSend(m.ChannelID, "pong!")
@@ -217,7 +220,10 @@ func anonmsg(s *discordgo.Session, m *discordgo.MessageCreate, command []string)
 	defer cmderror(s, m)
 	b, _ := s.UserChannelCreate(command[1])
 	f := strfukugen(command, 2)
-	s.ChannelMessageSend(b.ID, f)
+	_, err := s.ChannelMessageSend(b.ID, f)
+	if err != nil {
+		panic(err)
+	}
 	s.ChannelMessageSend(m.ChannelID, "あなたのメッセージ､届けましたよ")
 }
 
@@ -227,7 +233,10 @@ func chtopic(s *discordgo.Session, m *discordgo.MessageCreate, command []string)
 	if a&discordgo.PermissionManageChannels == discordgo.PermissionManageChannels {
 		c := discordgo.ChannelEdit{}
 		c.Topic = strfukugen(command, 2)
-		s.ChannelEditComplex(command[1], &c)
+		_, err := s.ChannelEditComplex(command[1], &c)
+		if err != nil {
+			panic(err)
+		}
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "何様のつもりですか...?")
 	}
@@ -238,7 +247,10 @@ func chsend(s *discordgo.Session, m *discordgo.MessageCreate, command []string) 
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, command[1])
 	check, _ := s.Channel(m.ChannelID)
 	if a&discordgo.PermissionSendMessages == discordgo.PermissionSendMessages || check.Type == discordgo.ChannelTypeDM {
-		s.ChannelMessageSend(command[1], strfukugen(command, 2))
+		_, err := s.ChannelMessageSend(command[1], strfukugen(command, 2))
+		if err != nil {
+			panic(err)
+		}
 		s.ChannelMessageDelete(m.ChannelID, m.ID)
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "このチャンネルにメッセージを送信する権限がありません")
@@ -257,7 +269,10 @@ func follow(s *discordgo.Session, m *discordgo.MessageCreate, command []string) 
 	if a&discordgo.PermissionManageWebhooks == discordgo.PermissionManageWebhooks {
 		b, _ := s.Channel(command[1])
 		if b.Type == discordgo.ChannelTypeGuildNews {
-			s.ChannelNewsFollow(command[1], m.ChannelID)
+			_, err := s.ChannelNewsFollow(command[1], m.ChannelID)
+			if err != nil {
+				panic(err)
+			}
 			s.ChannelMessageSend(m.ChannelID, "アナウンスチャンネルをフォローした。\nいらなくなったら運営に頼んで消して貰ってね。")
 		} else {
 			s.ChannelMessageSend(m.ChannelID, "アナウンスチャンネルじゃないよー")
@@ -276,7 +291,10 @@ func kick(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 		if reason == "" {
 			reason = "未指定"
 		}
-		s.GuildMemberDeleteWithReason(m.GuildID, command[1], reason)
+		err := s.GuildMemberDeleteWithReason(m.GuildID, command[1], reason)
+		if err != nil {
+			panic(err)
+		}
 		s.ChannelMessageSend(m.ChannelID, "実行者："+username(m.Author)+"\n"+username(b)+"をキックした。\n理由："+reason)
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "キック権限がありません")
@@ -292,7 +310,10 @@ func ban(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 		if reason == "" {
 			reason = "未指定"
 		}
-		s.GuildBanCreateWithReason(m.GuildID, command[1], reason, 0)
+		err := s.GuildBanCreateWithReason(m.GuildID, command[1], reason, 0)
+		if err != nil {
+			panic(err)
+		}
 		s.ChannelMessageSend(m.ChannelID, "実行者："+username(m.Author)+"\n"+username(b)+"をBANした。\n理由："+reason)
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "BAN権限がありません")
@@ -365,7 +386,10 @@ func giverole(s *discordgo.Session, m *discordgo.MessageCreate, command []string
 	defer cmderror(s, m)
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
 	if a&discordgo.PermissionManageRoles == discordgo.PermissionManageRoles {
-		s.GuildMemberRoleAdd(m.GuildID, command[1], command[2])
+		err := s.GuildMemberRoleAdd(m.GuildID, command[1], command[2])
+		if err != nil {
+			panic(err)
+		}
 		user, _ := s.User(command[1])
 		role, _ := s.State.Role(m.GuildID, command[2])
 		s.ChannelMessageSend(m.ChannelID, username(user)+"さんに"+"<@&"+role.ID+">("+role.Name+")を付与しました")
@@ -388,10 +412,16 @@ func pin(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 			}
 		}
 		if mode == 0 {
-			s.ChannelMessagePin(m.ChannelID, command[1])
+			err := s.ChannelMessagePin(m.ChannelID, command[1])
+			if err != nil {
+				panic(err)
+			}
 			s.ChannelMessageSend(m.ChannelID, "ピンをしました。："+username(m.Author))
 		} else {
-			s.ChannelMessageUnpin(m.ChannelID, command[1])
+			err := s.ChannelMessageUnpin(m.ChannelID, command[1])
+			if err != nil {
+				panic(err)
+			}
 			s.ChannelMessageSend(m.ChannelID, "ピンを外しました。："+username(m.Author))
 		}
 	} else {
@@ -408,4 +438,15 @@ func timecheck(s *discordgo.Session, m *discordgo.MessageCreate) {
 		Description: formattime(time.Now()),
 	}
 	s.ChannelMessageSendEmbed(m.ChannelID, &embed)
+}
+
+func bye(s *discordgo.Session, m *discordgo.MessageCreate) {
+	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
+	if a&discordgo.PermissionManageChannels == discordgo.PermissionManageChannels {
+		guild, _ := s.Guild(m.GuildID)
+		s.ChannelMessageSend(m.ChannelID, guild.Name+"("+guild.ID+")から退室しました。")
+		s.GuildLeave(m.GuildID)
+	} else {
+		s.ChannelMessageSend(m.ChannelID, "何様のつもりですか...?")
+	}
 }
