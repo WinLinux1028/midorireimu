@@ -4,14 +4,19 @@ import (
 	"bufio"
 	srand "crypto/rand"
 	"fmt"
+	"io/ioutil"
+	"math"
 	"math/big"
 	mrand "math/rand"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/shirou/gopsutil/mem"
 
 	"github.com/WinLinux1028/typeconv"
 	"github.com/bwmarrin/discordgo"
@@ -111,6 +116,12 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		timecheck(s, m)
 	case "脱出":
 		bye(s, m)
+	case "リンク":
+		link(s, m, command)
+	case "uuser":
+		uuser(s, m, command)
+	case "使用率":
+		memorycheck(s, m)
 	}
 }
 
@@ -192,7 +203,7 @@ func ping2(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var a = time.Now()
 	b, _ = s.ChannelMessageSend(m.ChannelID, "計測中……!")
 	var c = time.Since(a)
-	s.ChannelMessageEdit(m.ChannelID, b.ID, "pong！\n結果:**"+typeconv.Stringc(float64(c)/1000000000)+"**秒ですฅ✧！")
+	s.ChannelMessageEdit(m.ChannelID, b.ID, "pong！\n結果:**"+typeconv.Stringc(math.Round(float64(c)/1000000)/1000)+"**秒ですฅ✧！")
 }
 
 func yasei(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -449,4 +460,49 @@ func bye(s *discordgo.Session, m *discordgo.MessageCreate) {
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "何様のつもりですか...?")
 	}
+}
+
+func link(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
+	defer cmderror(s, m)
+	resp, err := http.Get("https://is.gd/create.php?format=simple&url=" + strfukugen(command, 1))
+	if err != nil {
+		resp.Body.Close()
+		panic(err)
+	}
+	defer resp.Body.Close()
+	respbyte, _ := ioutil.ReadAll(resp.Body)
+	mrand.Seed(time.Now().UnixNano())
+	embed := discordgo.MessageEmbed{
+		Title:       "短縮リンク",
+		Color:       mrand.Intn(0xffffff),
+		Description: string(respbyte),
+	}
+	s.ChannelMessageSendEmbed(m.ChannelID, &embed)
+	s.ChannelMessageDelete(m.ChannelID, m.ID)
+}
+
+func uuser(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
+	defer cmderror(s, m)
+	mrand.Seed(time.Now().UnixNano())
+	var guildnames string
+	for _, guild := range s.State.Guilds {
+		for _, mem := range guild.Members {
+			if mem.User.ID == command[1] {
+				guildnames = guildnames + guild.Name + "\n"
+				break
+			}
+		}
+	}
+	embed := discordgo.MessageEmbed{
+		Title:       "該当ユーザーが居る場所",
+		Description: guildnames,
+		Color:       mrand.Intn(0xffffff),
+	}
+	s.ChannelMessageSendEmbed(m.ChannelID, &embed)
+}
+
+func memorycheck(s *discordgo.Session, m *discordgo.MessageCreate) {
+	memory, _ := mem.VirtualMemory()
+	fmt.Println(math.Round(float64(memory.Total/10000000)) / 100)
+	//	s.ChannelMessageSend(m.ChannelID, "全てのメモリ容量:"+typeconv.Stringc(memory.Total))
 }
