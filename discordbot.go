@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/v3/cpu"
 
+	"github.com/WinLinux1028/dgconv"
 	"github.com/WinLinux1028/typeconv"
 	"github.com/bwmarrin/discordgo"
 )
@@ -79,6 +81,9 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if len(m.Content) < len(prefix) {
 		return
 	}
+	if strings.Contains(strings.ToLower(m.Content), "ypa") == true {
+		s.ChannelMessageSend(m.ChannelID, "お前スパイだろ､粛清(正しくはУраね)")
+	}
 	if m.Content[0:len(prefix)] != prefix {
 		return
 	}
@@ -122,6 +127,14 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		uuser(s, m, command)
 	case "使用率":
 		memorycheck(s, m)
+	case "全体人数":
+		amountofmember(s, m)
+	case "ユーザー人数":
+		amountofhuman(s, m)
+	case "bot人数":
+		amountofbot(s, m)
+	case "test":
+		test(s, m, command)
 	}
 }
 
@@ -176,6 +189,9 @@ func strfukugen(command []string, b int) (c string) {
 			c = c + " " + e
 		}
 	}
+	for c[0:1] == " " {
+		c = c[1:]
+	}
 	return
 }
 
@@ -214,7 +230,7 @@ func yasei(s *discordgo.Session, m *discordgo.MessageCreate) {
 		Color: mrand.Intn(0xffffff),
 	}
 	var a *discordgo.Channel
-	a, _ = s.Channel(m.ChannelID)
+	a, _ = s.State.Channel(m.ChannelID)
 	if a.Type != 0 {
 		embed.Description = ("野生の" + m.Author.Username + "が飛び出してきた！")
 	} else {
@@ -229,7 +245,7 @@ func yasei(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 func anonmsg(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	defer cmderror(s, m)
-	b, _ := s.UserChannelCreate(command[1])
+	b, _ := s.UserChannelCreate(dgconv.Getuser(s, command[1]))
 	f := strfukugen(command, 2)
 	_, err := s.ChannelMessageSend(b.ID, f)
 	if err != nil {
@@ -256,7 +272,7 @@ func chtopic(s *discordgo.Session, m *discordgo.MessageCreate, command []string)
 func chsend(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	defer cmderror(s, m)
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, command[1])
-	check, _ := s.Channel(m.ChannelID)
+	check, _ := s.State.Channel(m.ChannelID)
 	if a&discordgo.PermissionSendMessages == discordgo.PermissionSendMessages || check.Type == discordgo.ChannelTypeDM {
 		_, err := s.ChannelMessageSend(command[1], strfukugen(command, 2))
 		if err != nil {
@@ -278,7 +294,7 @@ func follow(s *discordgo.Session, m *discordgo.MessageCreate, command []string) 
 	defer cmderror(s, m)
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
 	if a&discordgo.PermissionManageWebhooks == discordgo.PermissionManageWebhooks {
-		b, _ := s.Channel(command[1])
+		b, _ := s.State.Channel(command[1])
 		if b.Type == discordgo.ChannelTypeGuildNews {
 			_, err := s.ChannelNewsFollow(command[1], m.ChannelID)
 			if err != nil {
@@ -298,11 +314,11 @@ func kick(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
 	if a&discordgo.PermissionKickMembers == discordgo.PermissionKickMembers {
 		reason := strfukugen(command, 2)
-		b, _ := s.User(command[1])
+		b, _ := s.User(dgconv.Getuser(s, command[1]))
 		if reason == "" {
 			reason = "未指定"
 		}
-		err := s.GuildMemberDeleteWithReason(m.GuildID, command[1], reason)
+		err := s.GuildMemberDeleteWithReason(m.GuildID, dgconv.Getuser(s, command[1]), reason)
 		if err != nil {
 			panic(err)
 		}
@@ -317,11 +333,11 @@ func ban(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
 	if a&discordgo.PermissionBanMembers == discordgo.PermissionBanMembers {
 		reason := strfukugen(command, 2)
-		b, _ := s.User(command[1])
+		b, _ := s.User(dgconv.Getuser(s, command[1]))
 		if reason == "" {
 			reason = "未指定"
 		}
-		err := s.GuildBanCreateWithReason(m.GuildID, command[1], reason, 0)
+		err := s.GuildBanCreateWithReason(m.GuildID, dgconv.Getuser(s, command[1]), reason, 0)
 		if err != nil {
 			panic(err)
 		}
@@ -337,7 +353,7 @@ func passwd(s *discordgo.Session, m *discordgo.MessageCreate, command []string) 
 		s.ChannelMessageSend(m.ChannelID, "パスワード生成コマンドです\n基本的な使い方: パスワード 桁数\n桁数の前に入れるオプション:\n--no-spchar 記号を含まない\n--only-number 数字のみ")
 		return
 	}
-	check, _ := s.Channel(m.ChannelID)
+	check, _ := s.State.Channel(m.ChannelID)
 	if check.Type != discordgo.ChannelTypeDM {
 		s.ChannelMessageSend(m.ChannelID, "このコマンドはDM以外で実行するべきではありません､このBOTとのDM上で実行してください")
 		return
@@ -397,12 +413,12 @@ func giverole(s *discordgo.Session, m *discordgo.MessageCreate, command []string
 	defer cmderror(s, m)
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
 	if a&discordgo.PermissionManageRoles == discordgo.PermissionManageRoles {
-		err := s.GuildMemberRoleAdd(m.GuildID, command[1], command[2])
+		err := s.GuildMemberRoleAdd(m.GuildID, dgconv.Getuser(s, command[1]), dgconv.Getrole(s, m, strfukugen(command, 2)))
 		if err != nil {
 			panic(err)
 		}
-		user, _ := s.User(command[1])
-		role, _ := s.State.Role(m.GuildID, command[2])
+		user, _ := s.User(dgconv.Getuser(s, command[1]))
+		role, _ := s.State.Role(m.GuildID, dgconv.Getrole(s, m, strfukugen(command, 2)))
 		s.ChannelMessageSend(m.ChannelID, username(user)+"さんに"+"<@&"+role.ID+">("+role.Name+")を付与しました")
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "ロール管理権限がありません")
@@ -412,7 +428,7 @@ func giverole(s *discordgo.Session, m *discordgo.MessageCreate, command []string
 func pin(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	defer cmderror(s, m)
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
-	check, _ := s.Channel(m.ChannelID)
+	check, _ := s.State.Channel(m.ChannelID)
 	if a&discordgo.PermissionManageChannels == discordgo.PermissionManageChannels || check.Type == discordgo.ChannelTypeDM {
 		msgs, _ := s.ChannelMessagesPinned(m.ChannelID)
 		var mode int
@@ -454,7 +470,7 @@ func timecheck(s *discordgo.Session, m *discordgo.MessageCreate) {
 func bye(s *discordgo.Session, m *discordgo.MessageCreate) {
 	a, _ := s.State.UserChannelPermissions(m.Author.ID, m.ChannelID)
 	if a&discordgo.PermissionManageChannels == discordgo.PermissionManageChannels {
-		guild, _ := s.Guild(m.GuildID)
+		guild, _ := s.State.Guild(m.GuildID)
 		s.ChannelMessageSend(m.ChannelID, guild.Name+"("+guild.ID+")から退室しました。")
 		s.GuildLeave(m.GuildID)
 	} else {
@@ -485,9 +501,10 @@ func uuser(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	defer cmderror(s, m)
 	mrand.Seed(time.Now().UnixNano())
 	var guildnames string
+	thisuser := dgconv.Getuser(s, command[1])
 	for _, guild := range s.State.Guilds {
 		for _, mem := range guild.Members {
-			if mem.User.ID == command[1] {
+			if mem.User.ID == thisuser {
 				guildnames = guildnames + guild.Name + "\n"
 				break
 			}
@@ -502,7 +519,49 @@ func uuser(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 }
 
 func memorycheck(s *discordgo.Session, m *discordgo.MessageCreate) {
-	memory, _ := mem.VirtualMemory()
-	fmt.Println(math.Round(float64(memory.Total/10000000)) / 100)
-	//	s.ChannelMessageSend(m.ChannelID, "全てのメモリ容量:"+typeconv.Stringc(memory.Total))
+	defer cmderror(s, m)
+	if searchslice(adminid, m.Author.ID) {
+		mem, _ := mem.VirtualMemory()
+		cpuper, _ := cpu.Percent(1000000000, false)
+		cpupers := typeconv.Stringc(math.Round(cpuper[0]*100) / 100)
+		allmem := typeconv.Stringc(math.Round(float64(mem.Total/10000000)) / 100)
+		used := typeconv.Stringc(math.Round(float64(mem.Used/10000000)) / 100)
+		usedp := typeconv.Stringc(math.Round((float64(mem.Used)/float64(mem.Total))*10000) / 100)
+		free := typeconv.Stringc(math.Round(float64(mem.Available/10000000)) / 100)
+		freep := typeconv.Stringc(100 - typeconv.Float64c(usedp))
+		s.ChannelMessageSend(m.ChannelID, "CPU使用率:"+cpupers+"%\n全てのメモリ容量:"+allmem+"GB\n使用量:"+used+"GB("+usedp+"%)\n空き容量:"+free+"GB("+freep+"%)")
+	} else {
+		s.ChannelMessageSend(m.ChannelID, "だが断る()")
+	}
+}
+
+func amountofmember(s *discordgo.Session, m *discordgo.MessageCreate) {
+	a, _ := s.State.Guild(m.GuildID)
+	s.ChannelMessageSend(m.ChannelID, "メンバー数:"+typeconv.Stringc(len(a.Members)))
+}
+
+func amountofhuman(s *discordgo.Session, m *discordgo.MessageCreate) {
+	a, _ := s.State.Guild(m.GuildID)
+	var i int
+	for _, member := range a.Members {
+		if member.User.Bot != true {
+			i = i + 1
+		}
+	}
+	s.ChannelMessageSend(m.ChannelID, "ユーザー数:"+typeconv.Stringc(i))
+}
+
+func amountofbot(s *discordgo.Session, m *discordgo.MessageCreate) {
+	a, _ := s.State.Guild(m.GuildID)
+	var i int
+	for _, member := range a.Members {
+		if member.User.Bot == true {
+			i = i + 1
+		}
+	}
+	s.ChannelMessageSend(m.ChannelID, "BOT数:"+typeconv.Stringc(i))
+}
+
+func test(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
+	fmt.Println(strfukugen(command, 0))
 }
