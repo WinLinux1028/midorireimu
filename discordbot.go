@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	srand "crypto/rand"
 	"fmt"
 	"io/ioutil"
@@ -14,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,11 +27,14 @@ import (
 
 //グローバル変数定義
 var (
-	prefix     string = "*;"
-	sc         chan os.Signal
-	adminid    []string = []string{"704702259665043476"}
-	bugrep     string   = "777459366555156501"
-	globalname string   = "青霊夢_test"
+	prefix      string
+	bugrep      string
+	backupct    string
+	globalname  string
+	adminid     []string
+	sc          chan os.Signal
+	botdeleted  []string
+	botdelmutex sync.Mutex
 )
 
 func init() {
@@ -41,12 +44,16 @@ func init() {
 		fmt.Println("Input your bot token to (executable file directory)/../discordtoken.txt")
 		return
 	}
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		token = scanner.Text()
-		break
-	}
+	scanned, err := ioutil.ReadAll(f)
+	scanstr := string(scanned)
 	f.Close()
+	scanstrs := strings.Split(scanstr, "\n")
+	token = scanstrs[0]
+	prefix = scanstrs[1]
+	bugrep = scanstrs[2]
+	backupct = scanstrs[3]
+	globalname = scanstrs[4]
+	adminid = strings.Split(scanstrs[5], ",\n")
 
 	var dg, err2 = discordgo.New("Bot " + token)
 	if err2 != nil {
@@ -54,6 +61,9 @@ func init() {
 		return
 	}
 	dg.AddHandler(messageCreate)
+	dg.AddHandler(messageEdit)
+	dg.AddHandler(messageDelete)
+	dg.AddHandler(memberRemove)
 	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAll)
 	err = dg.Open()
 	if err != nil {
@@ -62,12 +72,13 @@ func init() {
 	}
 
 	//ここから起動後に行いたい処理
+	dg.State.MaxMessageCount = 10000
 	fmt.Println("logged in as " + dg.State.User.Username)
 	for _, a := range adminid {
 		b, _ := dg.UserChannelCreate(a)
 		dg.ChannelMessageSend(b.ID, "起動完了")
 	}
-	dg.UpdateStreamingStatus(1, "Go版テスト", "https://www.youtube.com/watch?v=KcDED7_f258")
+	dg.UpdateStreamingStatus(1, "リニューアル版!", "https://www.youtube.com/watch?v=KcDED7_f258")
 	go func(s *discordgo.Session) {
 		for {
 			now := time.Now()
@@ -97,10 +108,187 @@ func init() {
 }
 
 func main() {
-	<-sc
+	select {
+	case <-sc:
+		return
+	}
+}
+
+func messageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
+	if m.BeforeDelete == nil {
+		return
+	}
+	if index := typeconv.Slastindex(botdeleted, m.BeforeDelete.ID); index != -1 {
+		botdelmutex.Lock()
+		botdeleted = append(botdeleted[:index], botdeleted[index+1:]...)
+		botdelmutex.Unlock()
+		return
+	}
+	channel, _ := s.State.Channel(m.BeforeDelete.ChannelID)
+	if channel.Type != discordgo.ChannelTypeGuildText {
+		return
+	}
+	if channel.Name == globalname {
+		return
+	}
+	author, _ := s.User(m.BeforeDelete.Author.ID)
+	if author.ID == s.State.User.ID {
+		if channel.Name == "削除履歴" {
+			if m.BeforeDelete.Embeds != nil {
+				s.ChannelMessageSendEmbed(m.BeforeDelete.ChannelID, m.BeforeDelete.Embeds[0])
+				return
+			}
+		}
+	}
+	beforemsg, _ := m.BeforeDelete.Timestamp.Parse()
+	beforemsg = beforemsg.Add(9 * time.Hour)
+	embed := make([]*discordgo.MessageEmbed, 0, 10)
+	embed = append(embed, &discordgo.MessageEmbed{
+		Description: m.BeforeDelete.Content,
+		Author: &discordgo.MessageEmbedAuthor{
+			Name:    author.Username + "#" + author.Discriminator + "がメッセージを削除しました",
+			IconURL: author.AvatarURL("4096"),
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: formattime(beforemsg) + "\n#" + channel.Name,
+		},
+	})
+	for i, att := range m.BeforeDelete.Attachments {
+		if i == 0 {
+			embed[0].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
+			}
+		} else if i == 1 {
+			embed = append(embed, embed[0])
+			embed[1].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
+			}
+			embed[1].Description = ""
+		} else {
+			embed = append(embed, embed[1])
+			embed[i].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
+			}
+		}
+	}
+	guild, _ := s.State.Guild(m.BeforeDelete.GuildID)
+	for _, channels := range guild.Channels {
+		if channels.Type == discordgo.ChannelTypeGuildText {
+			if channels.Name == "削除履歴" {
+				for _, embeds := range embed {
+					s.ChannelMessageSendEmbed(channels.ID, embeds)
+				}
+				break
+			}
+		}
+	}
+	backup, _ := s.State.Channel(backupct)
+	backupguild, _ := s.State.Guild(backup.GuildID)
+	for _, backupch := range backupguild.Channels {
+		if backupch.ParentID == backupct {
+			if strings.Contains(backupch.Name, guild.ID) {
+				for _, embeds := range embed {
+					s.ChannelMessageSendEmbed(backupch.ID, embeds)
+				}
+				return
+			}
+		}
+	}
+	backupch, _ := s.GuildChannelCreate(backupguild.ID, guild.Name+"_"+guild.ID, discordgo.ChannelTypeGuildText)
+	backupch, _ = s.ChannelEditComplex(backupch.ID, &discordgo.ChannelEdit{
+		ParentID: backupct,
+	})
+	for _, embeds := range embed {
+		s.ChannelMessageSendEmbed(backupch.ID, embeds)
+	}
+}
+
+func messageEdit(s *discordgo.Session, m *discordgo.MessageUpdate) {
+	if m.BeforeUpdate == nil {
+		return
+	}
+	channel, _ := s.State.Channel(m.BeforeUpdate.ChannelID)
+	if channel.Type != discordgo.ChannelTypeGuildText {
+		return
+	}
+	author, _ := s.User(m.BeforeUpdate.Author.ID)
+	if author.Bot {
+		return
+	}
+	beforemsg, _ := m.BeforeUpdate.Timestamp.Parse()
+	beforemsg = beforemsg.Add(9 * time.Hour)
+	embed := make([]*discordgo.MessageEmbed, 0, 10)
+	embed = append(embed, &discordgo.MessageEmbed{
+		Description: m.BeforeUpdate.Content,
+		Author: &discordgo.MessageEmbedAuthor{
+			Name:    author.Username + "#" + author.Discriminator + "がメッセージを編集しました",
+			IconURL: author.AvatarURL("4096"),
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: formattime(beforemsg) + "\n#" + channel.Name,
+		},
+	})
+	for i, att := range m.BeforeUpdate.Attachments {
+		if i == 0 {
+			embed[0].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
+			}
+		} else if i == 1 {
+			embed = append(embed, embed[0])
+			embed[1].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
+			}
+			embed[1].Description = ""
+		} else {
+			embed = append(embed, embed[1])
+			embed[i].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
+			}
+		}
+	}
+	guild, _ := s.State.Guild(m.BeforeUpdate.GuildID)
+	for _, channels := range guild.Channels {
+		if channels.Type == discordgo.ChannelTypeGuildText {
+			if channels.Name == "編集履歴" {
+				for _, embeds := range embed {
+					s.ChannelMessageSendEmbed(channels.ID, embeds)
+				}
+				break
+			}
+		}
+	}
+	backup, _ := s.State.Channel(backupct)
+	backupguild, _ := s.State.Guild(backup.GuildID)
+	for _, backupch := range backupguild.Channels {
+		if backupch.ParentID == backupct {
+			if strings.Contains(backupch.Name, guild.ID) {
+				for _, embeds := range embed {
+					s.ChannelMessageSendEmbed(backupch.ID, embeds)
+				}
+				return
+			}
+		}
+	}
+	backupch, _ := s.GuildChannelCreate(backupguild.ID, guild.Name+"_"+guild.ID, discordgo.ChannelTypeGuildText)
+	backupch, _ = s.ChannelEditComplex(backupch.ID, &discordgo.ChannelEdit{
+		ParentID: backupct,
+	})
+	for _, embeds := range embed {
+		s.ChannelMessageSendEmbed(backupch.ID, embeds)
+	}
+}
+
+func memberRemove(s *discordgo.Session, m *discordgo.GuildMemberRemove) {
+	guild, _ := s.State.Guild(m.GuildID)
+	for _, ch := range guild.Channels {
+		if ch.Name == "入退出履歴" {
+			s.ChannelMessageSend(ch.ID, username(m.User)+"が退出しました")
+		}
+	}
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	s.State.MessageAdd(m.Message)
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
@@ -187,6 +375,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		bugreport(s, m, command)
 	case "help":
 		help(s, m)
+	case "help2":
+		help2(s, m)
 	}
 }
 
@@ -198,40 +388,13 @@ func readcmd(m *discordgo.MessageCreate) (a []string) {
 func cmderror(s *discordgo.Session, m *discordgo.MessageCreate) {
 	err := recover()
 	if err != nil {
-		a := searchslice(adminid, m.Author.ID)
+		a := typeconv.Scontains(adminid, m.Author.ID)
 		if a == true {
 			errstr := fmt.Sprintln(err)
 			s.ChannelMessageSend(m.ChannelID, errstr)
 		} else {
 			s.ChannelMessageSend(m.ChannelID, "何かしらのエラーが起きたようです､構文ミスでないことを確認してから開発者にご相談ください\nまた､DMでは使えないコマンドも存在します")
 		}
-	}
-}
-
-func searchslice(a interface{}, b interface{}) (d bool) {
-	switch a.(type) {
-	case []string:
-		fukugen := a.([]string)
-		search := b.(string)
-		for _, c := range fukugen {
-			if c == search {
-				d = true
-				break
-			}
-		}
-		return
-	case []int:
-		fukugen := a.([]int)
-		search := b.(int)
-		for _, c := range fukugen {
-			if c == search {
-				d = true
-				break
-			}
-		}
-		return
-	default:
-		return
 	}
 }
 
@@ -303,6 +466,9 @@ func globalchat(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 		}
 	}
+	botdelmutex.Lock()
+	botdeleted = append(botdeleted, m.ID)
+	botdelmutex.Unlock()
 	s.ChannelMessageDelete(m.ChannelID, m.ID)
 }
 
@@ -399,6 +565,9 @@ func chsend(s *discordgo.Session, m *discordgo.MessageCreate, command []string) 
 		if err != nil {
 			panic(err)
 		}
+		botdelmutex.Lock()
+		botdeleted = append(botdeleted, m.ID)
+		botdelmutex.Unlock()
 		s.ChannelMessageDelete(m.ChannelID, m.ID)
 	} else {
 		s.ChannelMessageSend(m.ChannelID, "このチャンネルにメッセージを送信する権限がありません")
@@ -609,6 +778,9 @@ func link(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 		Description: string(respbyte),
 	}
 	s.ChannelMessageSendEmbed(m.ChannelID, embed)
+	botdelmutex.Lock()
+	botdeleted = append(botdeleted, m.ID)
+	botdelmutex.Unlock()
 	s.ChannelMessageDelete(m.ChannelID, m.ID)
 }
 
@@ -635,7 +807,7 @@ func uuser(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 
 func memorycheck(s *discordgo.Session, m *discordgo.MessageCreate) {
 	defer cmderror(s, m)
-	if searchslice(adminid, m.Author.ID) {
+	if typeconv.Scontains(adminid, m.Author.ID) {
 		mem, _ := mem.VirtualMemory()
 		cpuper, _ := cpu.Percent(1000000000, false)
 		cpupers := typeconv.Stringc(math.Round(cpuper[0]*100) / 100)
@@ -721,7 +893,7 @@ func rolecheck(s *discordgo.Session, m *discordgo.MessageCreate, command []strin
 	role := dgconv.Getrole(s, m, strfukugen(command, 1))
 	guild, _ := s.State.Guild(m.GuildID)
 	for _, m := range guild.Members {
-		if searchslice(m.Roles, role) {
+		if typeconv.Scontains(m.Roles, role) {
 			member = member + m.User.Username + "\n"
 			kazu = kazu + 1
 		}
@@ -752,7 +924,7 @@ func vcremove(s *discordgo.Session, m *discordgo.MessageCreate, command []string
 
 func shutdown(s *discordgo.Session, m *discordgo.MessageCreate) {
 	defer cmderror(s, m)
-	if searchslice(adminid, m.Author.ID) {
+	if typeconv.Scontains(adminid, m.Author.ID) {
 		s.ChannelMessageSend(m.ChannelID, "Shutting down...")
 		sc <- syscall.SIGINT
 	} else {
@@ -801,9 +973,21 @@ func ui(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	} else {
 		id = dgconv.Getuser(s, command[1])
 	}
-	member := dgconv.Getmember(s, id)
-	user, _ := s.User(id)
 	ch, _ := s.State.Channel(m.ChannelID)
+	var member *discordgo.Member
+	var err error
+	var mode bool
+	if ch.Type != discordgo.ChannelTypeGuildText {
+		member = dgconv.Getmember(s, id)
+	} else {
+		member, err = s.State.Member(m.GuildID, id)
+		mode = true
+		if err != nil {
+			member = dgconv.Getmember(s, id)
+			mode = false
+		}
+	}
+	user, _ := s.User(id)
 	createdtime, _ := discordgo.SnowflakeTimestamp(id)
 	status, _ := s.State.Presence(member.GuildID, id)
 	fields := make([]*discordgo.MessageEmbedField, 0, 10)
@@ -823,7 +1007,7 @@ func ui(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 		Name:  "BOT",
 		Value: typeconv.Stringc(user.Bot),
 	})
-	if ch.Type == discordgo.ChannelTypeGuildText {
+	if mode {
 		if member.Nick != "" {
 			fields = append(fields, &discordgo.MessageEmbedField{
 				Name:  "ニックネーム",
@@ -852,18 +1036,20 @@ func ui(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 		Name:  "アカウント作成日",
 		Value: formattime(createdtime),
 	})
-	if ch.Type == discordgo.ChannelTypeGuildText {
+	if mode {
 		var role string
 		var role2 *discordgo.Role
 		for _, roles := range member.Roles {
 			role2, _ = s.State.Role(m.GuildID, roles)
 			role = role + role2.Name + ","
 		}
-		role = role[:len(role)-1]
-		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  "ロール",
-			Value: role,
-		})
+		if role != "" {
+			role = role[:len(role)-1]
+			fields = append(fields, &discordgo.MessageEmbedField{
+				Name:  "ロール",
+				Value: role,
+			})
+		}
 	}
 
 	mrand.Seed(time.Now().UnixNano())
@@ -980,7 +1166,7 @@ func guildstate(s *discordgo.Session, m *discordgo.MessageCreate, command []stri
 
 func shell(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	defer cmderror(s, m)
-	if searchslice(adminid, m.Author.ID) {
+	if typeconv.Scontains(adminid, m.Author.ID) {
 		cmd := exec.Command(os.Getenv("SHELL"), "-c", strfukugen(command, 1))
 		a, _ := cmd.Output()
 		if string(a) == "" {
