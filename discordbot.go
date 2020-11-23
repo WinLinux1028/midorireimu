@@ -1015,23 +1015,25 @@ func ui(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 			})
 		}
 	}
-	if status.Game != nil {
-		if status.Game.State != "" {
-			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "アクティビティ",
-				Value: status.Game.State,
-			})
-		} else if status.Game.Name != "" {
-			fields = append(fields, &discordgo.MessageEmbedField{
-				Name:  "アクティビティ",
-				Value: status.Game.Name,
-			})
+	if status != nil {
+		if status.Game != nil {
+			if status.Game.State != "" {
+				fields = append(fields, &discordgo.MessageEmbedField{
+					Name:  "アクティビティ",
+					Value: status.Game.State,
+				})
+			} else if status.Game.Name != "" {
+				fields = append(fields, &discordgo.MessageEmbedField{
+					Name:  "アクティビティ",
+					Value: status.Game.Name,
+				})
+			}
 		}
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:  "ステータス",
+			Value: string(status.Status),
+		})
 	}
-	fields = append(fields, &discordgo.MessageEmbedField{
-		Name:  "ステータス",
-		Value: string(status.Status),
-	})
 	fields = append(fields, &discordgo.MessageEmbedField{
 		Name:  "アカウント作成日",
 		Value: formattime(createdtime),
