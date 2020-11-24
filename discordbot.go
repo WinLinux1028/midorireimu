@@ -38,6 +38,11 @@ var (
 )
 
 func init() {
+	sc = make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
+}
+
+func main() {
 	token, _ := os.Executable()
 	f, err := os.Open(filepath.Dir(token) + "/discordtoken.txt")
 	if err != nil {
@@ -103,11 +108,6 @@ func init() {
 		}
 	}(dg)
 
-	sc = make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
-}
-
-func main() {
 	select {
 	case <-sc:
 		return
@@ -145,6 +145,7 @@ func messageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
 	embed := make([]*discordgo.MessageEmbed, 0, 10)
 	embed = append(embed, &discordgo.MessageEmbed{
 		Description: m.BeforeDelete.Content,
+		Color:       0xff0000,
 		Author: &discordgo.MessageEmbedAuthor{
 			Name:    author.Username + "#" + author.Discriminator + "がメッセージを削除しました",
 			IconURL: author.AvatarURL("4096"),
@@ -215,11 +216,15 @@ func messageEdit(s *discordgo.Session, m *discordgo.MessageUpdate) {
 	if author.Bot {
 		return
 	}
+	if m.EditedTimestamp == "" || m.BeforeUpdate.EditedTimestamp == m.EditedTimestamp {
+		return
+	}
 	beforemsg, _ := m.BeforeUpdate.Timestamp.Parse()
 	beforemsg = beforemsg.Add(9 * time.Hour)
 	embed := make([]*discordgo.MessageEmbed, 0, 10)
 	embed = append(embed, &discordgo.MessageEmbed{
 		Description: m.BeforeUpdate.Content,
+		Color:       0x00ff00,
 		Author: &discordgo.MessageEmbedAuthor{
 			Name:    author.Username + "#" + author.Discriminator + "がメッセージを編集しました",
 			IconURL: author.AvatarURL("4096"),
@@ -304,7 +309,10 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 	if strings.Contains(strings.ToLower(m.Content), "ypa") == true {
-		s.ChannelMessageSend(m.ChannelID, "お前スパイだろ､粛清(正しくはУраね)")
+		if strings.Contains(strings.ToLower(m.Content), "http") && strings.Contains(m.Content, "://") && strings.Contains(m.Content, ".") {
+		} else {
+			s.ChannelMessageSend(m.ChannelID, "お前スパイだろ､粛清(正しくはУраね)")
+		}
 	}
 	if m.Content[0:len(prefix)] != prefix {
 		return
