@@ -34,7 +34,7 @@ var (
 	adminid     []string
 	sc          chan os.Signal
 	botdeleted  []string
-	botdelmutex sync.Mutex
+	botdelmutex sync.RWMutex
 )
 
 func init() {
@@ -81,7 +81,7 @@ func main() {
 	fmt.Println("logged in as " + dg.State.User.Username)
 	for _, a := range adminid {
 		b, _ := dg.UserChannelCreate(a)
-		dg.ChannelMessageSend(b.ID, "起動完了")
+		go dg.ChannelMessageSend(b.ID, "起動完了")
 	}
 	dg.UpdateStreamingStatus(1, "リニューアル版!", "https://www.youtube.com/watch?v=KcDED7_f258")
 	go func(s *discordgo.Session) {
@@ -102,7 +102,7 @@ func main() {
 			time.Sleep(future.Sub(now))
 			for _, send := range s.State.Guilds {
 				if send.SystemChannelID != "" {
-					s.ChannelMessageSend(send.SystemChannelID, "野獣の時間だよぉ!")
+					go s.ChannelMessageSend(send.SystemChannelID, "野獣の時間だよぉ!")
 				}
 			}
 		}
@@ -118,12 +118,15 @@ func messageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
 	if m.BeforeDelete == nil {
 		return
 	}
+	botdelmutex.RLock()
 	if index := typeconv.Slastindex(botdeleted, m.BeforeDelete.ID); index != -1 {
+		botdelmutex.RUnlock()
 		botdelmutex.Lock()
 		botdeleted = append(botdeleted[:index], botdeleted[index+1:]...)
 		botdelmutex.Unlock()
 		return
 	}
+	botdelmutex.RUnlock()
 	channel, _ := s.State.Channel(m.BeforeDelete.ChannelID)
 	if channel.Type != discordgo.ChannelTypeGuildText {
 		return
@@ -177,7 +180,7 @@ func messageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
 		if channels.Type == discordgo.ChannelTypeGuildText {
 			if channels.Name == "削除履歴" {
 				for _, embeds := range embed {
-					s.ChannelMessageSendEmbed(channels.ID, embeds)
+					go s.ChannelMessageSendEmbed(channels.ID, embeds)
 				}
 				break
 			}
@@ -189,7 +192,7 @@ func messageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {
 		if backupch.ParentID == backupct {
 			if strings.Contains(backupch.Name, guild.ID) {
 				for _, embeds := range embed {
-					s.ChannelMessageSendEmbed(backupch.ID, embeds)
+					go s.ChannelMessageSendEmbed(backupch.ID, embeds)
 				}
 				return
 			}
@@ -256,7 +259,7 @@ func messageEdit(s *discordgo.Session, m *discordgo.MessageUpdate) {
 		if channels.Type == discordgo.ChannelTypeGuildText {
 			if channels.Name == "編集履歴" {
 				for _, embeds := range embed {
-					s.ChannelMessageSendEmbed(channels.ID, embeds)
+					go s.ChannelMessageSendEmbed(channels.ID, embeds)
 				}
 				break
 			}
@@ -268,7 +271,7 @@ func messageEdit(s *discordgo.Session, m *discordgo.MessageUpdate) {
 		if backupch.ParentID == backupct {
 			if strings.Contains(backupch.Name, guild.ID) {
 				for _, embeds := range embed {
-					s.ChannelMessageSendEmbed(backupch.ID, embeds)
+					go s.ChannelMessageSendEmbed(backupch.ID, embeds)
 				}
 				return
 			}
@@ -311,7 +314,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if strings.Contains(strings.ToLower(m.Content), "ypa") == true {
 		if strings.Contains(strings.ToLower(m.Content), "http") && strings.Contains(m.Content, "://") && strings.Contains(m.Content, ".") {
 		} else {
-			s.ChannelMessageSend(m.ChannelID, "お前スパイだろ､粛清(正しくはУраね)")
+			go s.ChannelMessageSend(m.ChannelID, "お前スパイだろ､粛清(正しくはУраね)")
 		}
 	}
 	if m.Content[0:len(prefix)] != prefix {
@@ -418,9 +421,8 @@ func strfukugen(command []string, b int) (c string) {
 	return
 }
 
-func username(user *discordgo.User) (a string) {
-	a = "<@" + user.ID + ">(" + user.Username + "#" + user.Discriminator + ")"
-	return
+func username(user *discordgo.User) string {
+	return "<@" + user.ID + ">(" + user.Username + "#" + user.Discriminator + ")"
 }
 
 func formattime(time time.Time) (s string) {
@@ -434,41 +436,44 @@ func formattime(time time.Time) (s string) {
 func globalchat(s *discordgo.Session, m *discordgo.MessageCreate) {
 	defer cmderror(s, m)
 	nowguild, _ := s.State.Guild(m.GuildID)
-	embed := make([]*discordgo.MessageEmbed, 0, 10)
-	embed = append(embed, &discordgo.MessageEmbed{
+	embed := make([]discordgo.MessageEmbed, 0, 10)
+	embed = append(embed, discordgo.MessageEmbed{
 		Description: m.Content,
 		Author: &discordgo.MessageEmbedAuthor{
 			Name:    m.Author.Username + "#" + m.Author.Discriminator + "@" + nowguild.Name,
 			IconURL: m.Author.AvatarURL("4096"),
 		},
 	})
-	if len(m.Attachments) == 0 {
-	} else {
-		for i, att := range m.Attachments {
-			if i == 0 {
-				embed[0].Image = &discordgo.MessageEmbedImage{
-					URL: att.ProxyURL,
-				}
-			} else {
-				embed = append(embed, &discordgo.MessageEmbed{
-					Author: &discordgo.MessageEmbedAuthor{
-						Name:    m.Author.Username + "#" + m.Author.Discriminator + "@" + nowguild.Name,
-						IconURL: m.Author.AvatarURL("4096"),
-					},
-					Image: &discordgo.MessageEmbedImage{
-						URL: att.ProxyURL,
-					},
-				})
+	for i, att := range m.Attachments {
+		if i == 0 {
+			embed[0].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
+			}
+		} else if i == 1 {
+			embed = append(embed, embed[0])
+			embed[1].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
+			}
+			embed[1].Description = ""
+		} else {
+			embed = append(embed, embed[1])
+			embed[i].Image = &discordgo.MessageEmbedImage{
+				URL: att.ProxyURL,
 			}
 		}
 	}
+	wg := sync.WaitGroup{}
 	for _, guilds := range s.State.Guilds {
 		for _, channels := range guilds.Channels {
 			if channels.Type == discordgo.ChannelTypeGuildText {
 				if channels.Name == globalname {
-					for _, embeds := range embed {
-						s.ChannelMessageSendEmbed(channels.ID, embeds)
-					}
+					wg.Add(1)
+					go func() {
+						for _, embeds := range embed {
+							s.ChannelMessageSendEmbed(channels.ID, &embeds)
+						}
+						defer wg.Done()
+					}()
 					break
 				}
 			}
@@ -477,6 +482,7 @@ func globalchat(s *discordgo.Session, m *discordgo.MessageCreate) {
 	botdelmutex.Lock()
 	botdeleted = append(botdeleted, m.ID)
 	botdelmutex.Unlock()
+	wg.Wait()
 	s.ChannelMessageDelete(m.ChannelID, m.ID)
 }
 
@@ -650,42 +656,41 @@ func passwd(s *discordgo.Session, m *discordgo.MessageCreate, command []string) 
 		s.ChannelMessageSend(m.ChannelID, "このコマンドはDM以外で実行するべきではありません､このBOTとのDM上で実行してください")
 		return
 	}
-	var letters string
+	var letters []byte
 	var a int
+	var plus int
 	var max int
-	var passwd string
+	var passwd []byte
 	if command[1] == "--only-number" {
-		letters = "0123456789"
+		letters = []byte("0123456789")
 		a = typeconv.Intc(command[2])
+		passwd = make([]byte, a, a)
 		max = 2000
 	} else if command[1] == "--no-spchar" {
-		letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+		letters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 		a = typeconv.Intc(command[2])
+		passwd = make([]byte, a, a)
 		max = 2000
 	} else {
-		passwd = "`"
-		letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\"#$%&'\\()*+,-./:;<=>?@[]^_{|}~"
+		passwd = []byte("`")
+		letters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\"#$%&'\\()*+,-./:;<=>?@[]^_{|}~")
 		a = typeconv.Intc(command[1])
+		passwd = make([]byte, a+2, a+2)
+		passwd[0] = []byte("`")[0]
+		passwd[a+1] = []byte("`")[0]
+		plus = 1
 		max = 1998
 	}
 	if a > 0 && a <= max {
-		i := 0
-		for i < a {
-			letterslen := big.NewInt(int64(len(letters) - 1))
-			b, _ := srand.Int(srand.Reader, letterslen)
-			c := b.Int64()
-			passwd = passwd + letters[c:c+1]
-			i = i + 1
-		}
-		if passwd[0:1] == "`" {
-			passwd = passwd + "`"
+		for i := 0; i < a; i++ {
+			b, _ := srand.Int(srand.Reader, big.NewInt(int64(len(letters)-1)))
+			passwd[i+plus] = letters[b.Int64()]
 		}
 		s.ChannelMessageSend(m.ChannelID, "パスワードの生成が完了しました､生成されたパスワードは")
-		s.ChannelMessageSend(m.ChannelID, passwd)
+		s.ChannelMessageSend(m.ChannelID, string(passwd))
 		s.ChannelMessageSend(m.ChannelID, "です")
 	} else {
-		maxstr := typeconv.Stringc(max)
-		s.ChannelMessageSend(m.ChannelID, "1文字以上､"+maxstr+"文字以下にしてください")
+		s.ChannelMessageSend(m.ChannelID, "1文字以上､"+typeconv.Stringc(max)+"文字以下にしてください")
 	}
 }
 
@@ -1076,7 +1081,6 @@ func ui(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 
 func guildstate(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
 	defer cmderror(s, m)
-	var err error
 	var guild string
 	if len(command) != 2 {
 		guild = m.GuildID
@@ -1168,10 +1172,7 @@ func guildstate(s *discordgo.Session, m *discordgo.MessageCreate, command []stri
 		},
 		Fields: fields,
 	}
-	_, err = s.ChannelMessageSendEmbed(m.ChannelID, embed)
-	if err != nil {
-		panic(err)
-	}
+	s.ChannelMessageSendEmbed(m.ChannelID, embed)
 }
 
 func shell(s *discordgo.Session, m *discordgo.MessageCreate, command []string) {
@@ -1226,7 +1227,7 @@ func bugreport(s *discordgo.Session, m *discordgo.MessageCreate, command []strin
 		Description: desc,
 		Color:       mrand.Intn(0xffffff),
 	}
-	s.ChannelMessageSendEmbed(bugrep, embed)
+	go s.ChannelMessageSendEmbed(bugrep, embed)
 	s.ChannelMessageSend(m.ChannelID, "参考にします")
 }
 
